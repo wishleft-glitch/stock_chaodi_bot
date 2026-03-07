@@ -1,6 +1,5 @@
 .env
 .env.local
-.env.yuntu
 __pycache__/
 *.pyc
 *.pyo
@@ -14,7 +13,6 @@ venv/
 *.log
 market_cap_cache.json
 quant_bot_state.json
-yuntu_bid_report_state.json
 
 # Local temp/runtime folders
 .pip-tmp/
