@@ -1,2 +1,0 @@
--r stock_bot/requirements.txt
--r yuntu_report/requirements.txt
