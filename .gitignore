@@ -1,0 +1,18 @@
+.env
+.env.local
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+
+# Runtime logs and caches
+*.log
+market_cap_cache.json
+quant_bot_state.json
+
+# Local temp/runtime folders
+.pip-tmp/
