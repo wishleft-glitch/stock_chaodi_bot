@@ -1,7 +1,4 @@
 @echo off
 setlocal
-
-cd /d C:\Users\xiongyu\Documents\MYAI
-"C:\Users\xiongyu\AppData\Local\Programs\Python\Python312\python.exe" quant_bot_free.py >> quant_bot_runner.log 2>&1
-
-endlocal
+cd /d %~dp0\stock_bot
+call start_quant_bot_free.bat

@@ -1,11 +1,2 @@
-pandas
-numpy
-python-dotenv
-requests
-apscheduler
-playwright
-schedule
-backports.zoneinfo; python_version < "3.9"
-akshare
-yfinance
-finvizfinance
+-r stock_bot/requirements.txt
+-r yuntu_report/requirements.txt

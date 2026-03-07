@@ -31,7 +31,6 @@ STATE_FILE = Path(__file__).with_name("yuntu_bid_report_state.json")
 ROOT_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_ENV_FILES = [
     ROOT_DIR / ".env.yuntu",
-    ROOT_DIR / ".env",
 ]
 LABEL_INDUSTRY = "\u884c\u4e1a"
 LABEL_BID_RANKING = "\u7ade\u4ef7\u699c"

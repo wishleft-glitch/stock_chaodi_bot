@@ -1,0 +1,9 @@
+pandas
+numpy
+python-dotenv
+requests
+apscheduler
+backports.zoneinfo; python_version < "3.9"
+akshare
+yfinance
+finvizfinance
