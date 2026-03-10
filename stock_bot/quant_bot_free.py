@@ -59,6 +59,7 @@ LOG_FILE = "quant_bot.log"
 STATE_FILE = "quant_bot_state.json"
 MARKET_CAP_CACHE_FILE = "market_cap_cache.json"
 TIMEZONE = ZoneInfo("Asia/Shanghai")
+US_MARKET_TIMEZONE = ZoneInfo("America/New_York")
 TELEGRAM_API_URL = "https://api.telegram.org/bot{token}/sendMessage"
 
 # 市值门槛
@@ -78,12 +79,58 @@ US_HISTORY_BATCH_SIZE = 60
 US_HISTORY_SLEEP_SECONDS = 1.2
 US_EARNINGS_SLEEP_SECONDS = 0.3
 ASIA_HISTORY_SLEEP_SECONDS = 0.35
-ASIA_HISTORY_BATCH_SIZE = 50
+ASIA_HISTORY_BATCH_SIZE = 20
 AKSHARE_SPOT_TIMEOUT_SECONDS = 25
 SINGLE_INSTANCE_PORT = 47281
 MARKET_CAP_CACHE_TTL_DAYS = 7
 CN_FALLBACK_TURNOVER_LIMIT = 400
 HK_FALLBACK_TURNOVER_LIMIT = 250
+CN_SCAN_LIMIT = int(os.getenv("CN_SCAN_LIMIT", "400"))
+HK_SCAN_LIMIT = int(os.getenv("HK_SCAN_LIMIT", "250"))
+CN_FUND_WATCHLIST = [
+    {"code": "512200", "name": "房地产ETF", "category": "基金", "source": "etf"},
+    {"code": "159515", "name": "国企红利ETF", "category": "基金", "source": "etf"},
+    {"code": "515030", "name": "新能源车ETF", "category": "基金", "source": "etf"},
+    {"code": "512400", "name": "有色金属ETF", "category": "基金", "source": "etf"},
+    {"code": "515210", "name": "钢铁ETF", "category": "基金", "source": "etf"},
+    {"code": "159928", "name": "消费ETF", "category": "基金", "source": "etf"},
+    {"code": "516110", "name": "汽车ETF", "category": "基金", "source": "etf"},
+    {"code": "159929", "name": "医药ETF", "category": "基金", "source": "etf"},
+    {"code": "512760", "name": "芯片ETF", "category": "基金", "source": "etf"},
+    {"code": "512880", "name": "证券ETF", "category": "基金", "source": "etf"},
+    {"code": "512980", "name": "传媒ETF", "category": "基金", "source": "etf"},
+    {"code": "515070", "name": "人工智能AI", "category": "基金", "source": "etf"},
+    {"code": "159997", "name": "电子ETF", "category": "基金", "source": "etf"},
+    {"code": "515790", "name": "光伏ETF", "category": "基金", "source": "etf"},
+    {"code": "515170", "name": "食品饮料ETF", "category": "基金", "source": "etf"},
+    {"code": "512580", "name": "环保ETF", "category": "基金", "source": "etf"},
+    {"code": "512710", "name": "军工龙头ETF", "category": "基金", "source": "etf"},
+    {"code": "000001", "name": "上证指数", "category": "指数", "source": "index", "symbol": "sh000001"},
+    {"code": "000300", "name": "沪深300", "category": "指数", "source": "index", "symbol": "sh000300"},
+    {"code": "000905", "name": "中证500", "category": "指数", "source": "index", "symbol": "sh000905"},
+    {"code": "000852", "name": "中证1000", "category": "指数", "source": "index", "symbol": "sh000852"},
+    {"code": "399303", "name": "国证2000", "category": "指数", "source": "index", "symbol": "sz399303"},
+    {"code": "399006", "name": "创业板指", "category": "指数", "source": "index", "symbol": "sz399006"},
+    {"code": "000698", "name": "科创100", "category": "指数", "source": "index", "symbol": "sh000698"},
+    {"code": "511090", "name": "30年国债ETF", "category": "基金", "source": "etf"},
+    {"code": "518880", "name": "黄金ETF华夏", "category": "基金", "source": "etf"},
+    {"code": "159866", "name": "日经ETF工银", "category": "基金", "source": "etf"},
+    {"code": "164824", "name": "印度基金LOF", "category": "基金", "source": "lof"},
+    {"code": "512690", "name": "酒ETF", "category": "基金", "source": "etf"},
+    {"code": "512480", "name": "半导体ETF", "category": "基金", "source": "etf"},
+    {"code": "512800", "name": "银行ETF", "category": "基金", "source": "etf"},
+    {"code": "515220", "name": "煤炭ETF", "category": "基金", "source": "etf"},
+    {"code": "513130", "name": "恒生科技ETF", "category": "基金", "source": "etf"},
+    {"code": "159615", "name": "恒生生物科技ETF", "category": "基金", "source": "etf"},
+    {"code": "512670", "name": "国防ETF", "category": "基金", "source": "etf"},
+    {"code": "516780", "name": "稀土ETF", "category": "基金", "source": "etf"},
+    {"code": "515000", "name": "科技ETF", "category": "基金", "source": "etf"},
+    {"code": "515050", "name": "通信ETF华夏", "category": "基金", "source": "etf"},
+    {"code": "515880", "name": "通信ETF", "category": "基金", "source": "etf"},
+    {"code": "159996", "name": "家电ETF", "category": "基金", "source": "etf"},
+    {"code": "159697", "name": "石油ETF鹏华", "category": "基金", "source": "etf"},
+    {"code": "561560", "name": "电力ETF", "category": "基金", "source": "etf"},
+]
 
 
 _singleton_socket: Optional[socket.socket] = None
@@ -510,6 +557,64 @@ def calculate_cci_bottom_signal(kline_df: pd.DataFrame) -> bool:
     return yesterday_cci1 <= CCI_CROSS_LEVEL and today_cci1 > threshold_today
 
 
+def analyze_market_signals(kline_df: pd.DataFrame) -> Dict[str, bool]:
+    """Analyze current bottom and buy signals from one K-line dataframe."""
+    if kline_df is None or len(kline_df) < MIN_KLINE_ROWS:
+        return {"bottom": False, "buy": False}
+
+    df = normalize_kline_columns(kline_df)
+    if len(df) < MIN_KLINE_ROWS:
+        return {"bottom": False, "buy": False}
+
+    open_series = df["open"]
+    high_series = df["high"]
+    low_series = df["low"]
+    close_series = df["close"]
+
+    price1_condition = ((high_series > close_series) & (close_series > open_series)) | (
+        (high_series > open_series) & (open_series >= close_series)
+    )
+    df["PRICE1"] = np.where(price1_condition, close_series, high_series)
+
+    price2_condition = ((low_series < close_series) & (close_series < open_series)) | (
+        (low_series < open_series) & (open_series <= close_series)
+    )
+    df["PRICE2"] = np.where(price2_condition, close_series, low_series)
+    df["TYP"] = df["PRICE1"] + (df["PRICE2"] / 3.0)
+
+    typ_ma = df["TYP"].rolling(CCI_PERIOD).mean()
+    typ_avedev = df["TYP"].rolling(CCI_PERIOD).apply(
+        lambda values: np.mean(np.abs(values - np.mean(values))),
+        raw=True,
+    )
+    denominator = 0.015 * typ_avedev.replace(0, np.nan)
+    df["CCI"] = (df["TYP"] - typ_ma) / denominator
+    df["CCI1"] = df["CCI"].ewm(span=CCI_EMA_SPAN, adjust=False).mean()
+    df["EMA4"] = close_series.ewm(span=4, adjust=False).mean()
+    df["EMA11"] = close_series.ewm(span=11, adjust=False).mean()
+
+    threshold_today = CCI_CROSS_LEVEL + CCI_CONFIRMATION_BUFFER
+    df["BOTTOM_SIGNAL"] = (
+        (df["CCI1"].shift(1) <= CCI_CROSS_LEVEL) &
+        (df["CCI1"] > threshold_today)
+    )
+
+    bottom_today = bool(df["BOTTOM_SIGNAL"].fillna(False).iloc[-1])
+    recent_bottom_signal = bool(df["BOTTOM_SIGNAL"].fillna(False).tail(30).any())
+
+    ema_cross_today = bool(
+        pd.notna(df["EMA4"].iloc[-1]) and
+        pd.notna(df["EMA11"].iloc[-1]) and
+        pd.notna(df["EMA4"].shift(1).iloc[-1]) and
+        pd.notna(df["EMA11"].shift(1).iloc[-1]) and
+        df["EMA4"].shift(1).iloc[-1] <= df["EMA11"].shift(1).iloc[-1] and
+        df["EMA4"].iloc[-1] > df["EMA11"].iloc[-1]
+    )
+    buy_today = recent_bottom_signal and ema_cross_today
+
+    return {"bottom": bottom_today, "buy": buy_today}
+
+
 def format_earnings_date(value: object) -> Optional[str]:
     """将日期对象或字符串统一格式化为 YYYY/MM/DD。"""
     if value is None:
@@ -541,7 +646,7 @@ def extract_latest_trade_date(kline_df: pd.DataFrame) -> Optional[str]:
         return None
 
     candidate_series = None
-    for column in ["Date", "Datetime", "日期", "time_key"]:
+    for column in ["Date", "Datetime", "date", "datetime", "日期", "time_key"]:
         if column in kline_df.columns:
             candidate_series = pd.to_datetime(kline_df[column], errors="coerce")
             break
@@ -685,16 +790,16 @@ def extract_yfinance_histories(symbol_map: Dict[str, str], batch_size: int = ASI
                 group_by="ticker",
                 auto_adjust=False,
                 progress=False,
-                threads=True,
+                threads=False,
                 timeout=20,
             )
         except Exception:
             logging.exception("批量拉取亚洲市场历史 K 线失败，本批次稍后走逐只回退。")
-            time.sleep(US_HISTORY_SLEEP_SECONDS)
+            time.sleep(ASIA_HISTORY_SLEEP_SECONDS)
             continue
 
         if raw_df is None or raw_df.empty:
-            time.sleep(US_HISTORY_SLEEP_SECONDS)
+            time.sleep(ASIA_HISTORY_SLEEP_SECONDS)
             continue
 
         if isinstance(raw_df.columns, pd.MultiIndex):
@@ -710,8 +815,18 @@ def extract_yfinance_histories(symbol_map: Dict[str, str], batch_size: int = ASI
             code, _ticker = batch_items[0]
             histories[code] = raw_df.copy().reset_index(drop=False)
 
-        time.sleep(US_HISTORY_SLEEP_SECONDS)
+        time.sleep(ASIA_HISTORY_SLEEP_SECONDS)
     return histories
+
+
+def limit_asia_universe(spot_df: pd.DataFrame, limit: int, market_label: str) -> pd.DataFrame:
+    """Limit Asia market scan size so login-time runs can complete in a reasonable time."""
+    if spot_df is None or spot_df.empty or limit <= 0 or len(spot_df) <= limit:
+        return spot_df
+
+    limited_df = spot_df.sort_values("market_cap", ascending=False).head(limit).reset_index(drop=True)
+    logging.info("%s 股票池过大，已按市值限制扫描数量: %s -> %s", market_label, len(spot_df), len(limited_df))
+    return limited_df
 
 
 def fetch_us_earnings_date(code: str) -> Optional[str]:
@@ -750,10 +865,11 @@ def scan_us_market() -> tuple[List[Dict[str, object]], Optional[str]]:
     """执行美股扫描，并返回最近交易日。"""
     universe_df = fetch_us_universe()
     if universe_df.empty:
-        return [], None
+        return {"bottom": [], "buy": []}, None
 
     histories = extract_us_histories(universe_df["code"].tolist())
-    winners: List[Dict[str, object]] = []
+    bottom_winners: List[Dict[str, object]] = []
+    buy_winners: List[Dict[str, object]] = []
     latest_trade_date: Optional[str] = None
 
     for _, row in universe_df.iterrows():
@@ -766,26 +882,34 @@ def scan_us_market() -> tuple[List[Dict[str, object]], Optional[str]]:
             trade_date = extract_latest_trade_date(history_df)
             if trade_date and (latest_trade_date is None or trade_date > latest_trade_date):
                 latest_trade_date = trade_date
-            if calculate_cci_bottom_signal(history_df):
-                winners.append(
-                    {
-                        "code": code,
-                        "name": row["name"],
-                        "market_cap": row["market_cap"],
-                        "earnings_time": None,
-                    }
-                )
+            signals = analyze_market_signals(history_df)
+            payload = {
+                "code": code,
+                "name": row["name"],
+                "market_cap": row["market_cap"],
+                "earnings_time": None,
+                "category": "股票",
+            }
+            if signals["bottom"]:
+                bottom_winners.append(payload.copy())
+            if signals["buy"]:
+                buy_winners.append(payload.copy())
         except Exception:
             logging.exception("计算美股 %s 技术信号失败。", code)
 
     # 仅对最终命中的股票补抓财报时间，减少 yfinance 慢调用。
-    for item in winners:
+    result_map: Dict[str, Dict[str, object]] = {}
+    for item in bottom_winners + buy_winners:
+        result_map[str(item["code"])] = item
+
+    for item in result_map.values():
         item["earnings_time"] = fetch_us_earnings_date(str(item["code"]))
         time.sleep(US_EARNINGS_SLEEP_SECONDS)
 
-    winners.sort(key=lambda item: float(item["market_cap"]), reverse=True)
-    logging.info("美股最终命中数量: %s", len(winners))
-    return winners, latest_trade_date
+    bottom_winners.sort(key=lambda item: float(item["market_cap"]), reverse=True)
+    buy_winners.sort(key=lambda item: float(item["market_cap"]), reverse=True)
+    logging.info("美股抄底信号数量: %s；买入信号数量: %s", len(bottom_winners), len(buy_winners))
+    return {"bottom": bottom_winners, "buy": buy_winners}, latest_trade_date
 
 
 def get_cn_disclosure_period_candidates() -> List[str]:
@@ -1093,6 +1217,74 @@ def fetch_cn_history(code: str) -> pd.DataFrame:
         return ticker.history(period="4mo", interval="1d", auto_adjust=False).reset_index(drop=False)
 
 
+def fetch_cn_watchlist_history(item: Dict[str, str]) -> pd.DataFrame:
+    """拉取 A 股基金/指数观察清单的历史 K 线。"""
+    end_date = datetime.now(TIMEZONE).strftime("%Y%m%d")
+    start_date = (datetime.now(TIMEZONE) - timedelta(days=120)).strftime("%Y%m%d")
+    source = item["source"]
+
+    with akshare_no_proxy():
+        if source == "etf":
+            return ak.fund_etf_hist_em(
+                symbol=item["code"],
+                period="daily",
+                start_date=start_date,
+                end_date=end_date,
+                adjust="qfq",
+            )
+        if source == "lof":
+            return ak.fund_lof_hist_em(
+                symbol=item["code"],
+                period="daily",
+                start_date=start_date,
+                end_date=end_date,
+                adjust="qfq",
+            )
+        if source == "index":
+            return ak.stock_zh_index_daily_em(
+                symbol=item["symbol"],
+                start_date=start_date,
+                end_date=end_date,
+            )
+
+    raise ValueError(f"不支持的 A 股观察清单来源: {source}")
+
+
+def scan_cn_watchlist() -> tuple[Dict[str, List[Dict[str, object]]], Optional[str]]:
+    """巡查固定 A 股基金/指数观察清单。"""
+    bottom_winners: List[Dict[str, object]] = []
+    buy_winners: List[Dict[str, object]] = []
+    latest_trade_date: Optional[str] = None
+
+    for order, item in enumerate(CN_FUND_WATCHLIST, start=1):
+        try:
+            hist_df = fetch_cn_watchlist_history(item)
+            trade_date = extract_latest_trade_date(hist_df)
+            if trade_date and (latest_trade_date is None or trade_date > latest_trade_date):
+                latest_trade_date = trade_date
+            signals = analyze_market_signals(hist_df)
+            payload = {
+                "code": item["code"],
+                "name": item["name"],
+                "market_cap": 0,
+                "earnings_time": None,
+                "category": item["category"],
+                "sort_group": 1,
+                "sort_order": order,
+            }
+            if signals["bottom"]:
+                bottom_winners.append(payload.copy())
+            if signals["buy"]:
+                buy_winners.append(payload.copy())
+        except Exception:
+            logging.exception("处理 A 股观察清单 %s 失败，跳过。", item["code"])
+        finally:
+            time.sleep(ASIA_HISTORY_SLEEP_SECONDS)
+
+    logging.info("A 股基金/指数观察清单抄底信号数量: %s；买入信号数量: %s", len(bottom_winners), len(buy_winners))
+    return {"bottom": bottom_winners, "buy": buy_winners}, latest_trade_date
+
+
 def fetch_hk_history(code: str) -> pd.DataFrame:
     """拉取单只港股日 K，优先尝试前复权，失败则回退到不复权。"""
     end_date = datetime.now(TIMEZONE).strftime("%Y%m%d")
@@ -1120,7 +1312,7 @@ def fetch_hk_history(code: str) -> pd.DataFrame:
                 return ticker.history(period="4mo", interval="1d", auto_adjust=False).reset_index(drop=False)
 
 
-def scan_cn_market() -> tuple[List[Dict[str, object]], Optional[str]]:
+def scan_cn_market() -> tuple[Dict[str, List[Dict[str, object]]], Optional[str]]:
     """执行 A 股扫描，并返回最近交易日。"""
     try:
         spot_df = fetch_cn_spot_df()
@@ -1130,10 +1322,12 @@ def scan_cn_market() -> tuple[List[Dict[str, object]], Optional[str]]:
             spot_df = fetch_cn_spot_df_fallback()
         except Exception:
             logging.exception("A 股备用股票池也失败，本次 A 股扫描返回空结果。")
-            return [], None
+            return {"bottom": [], "buy": []}, None
 
+    spot_df = limit_asia_universe(spot_df, CN_SCAN_LIMIT, "A股")
     earnings_map = fetch_a_share_earnings_map()
-    winners: List[Dict[str, object]] = []
+    bottom_winners: List[Dict[str, object]] = []
+    buy_winners: List[Dict[str, object]] = []
     latest_trade_date: Optional[str] = None
     histories = extract_yfinance_histories(
         {str(code): format_cn_yfinance_ticker(str(code)) for code in spot_df["code"].tolist()}
@@ -1150,27 +1344,39 @@ def scan_cn_market() -> tuple[List[Dict[str, object]], Optional[str]]:
             trade_date = extract_latest_trade_date(hist_df)
             if trade_date and (latest_trade_date is None or trade_date > latest_trade_date):
                 latest_trade_date = trade_date
-            if calculate_cci_bottom_signal(hist_df):
-                winners.append(
-                    {
-                        "code": code,
-                        "name": row["name"],
-                        "market_cap": row["market_cap"],
-                        "earnings_time": earnings_map.get(code),
-                    }
-                )
+            signals = analyze_market_signals(hist_df)
+            payload = {
+                "code": code,
+                "name": row["name"],
+                "market_cap": row["market_cap"],
+                "earnings_time": earnings_map.get(code),
+                "category": "股票",
+                "sort_group": 0,
+            }
+            if signals["bottom"]:
+                bottom_winners.append(payload.copy())
+            if signals["buy"]:
+                buy_winners.append(payload.copy())
         except Exception:
             logging.exception("处理 A 股 %s 失败，跳过。", code)
         finally:
             if used_fallback_fetch:
                 time.sleep(ASIA_HISTORY_SLEEP_SECONDS)
 
-    winners.sort(key=lambda item: float(item["market_cap"]), reverse=True)
-    logging.info("A 股最终命中数量: %s", len(winners))
-    return winners, latest_trade_date
+    bottom_winners.sort(key=lambda item: float(item["market_cap"]), reverse=True)
+    buy_winners.sort(key=lambda item: float(item["market_cap"]), reverse=True)
+
+    watchlist_signals, watchlist_trade_date = scan_cn_watchlist()
+    if watchlist_trade_date and (latest_trade_date is None or watchlist_trade_date > latest_trade_date):
+        latest_trade_date = watchlist_trade_date
+
+    combined_bottom = bottom_winners + watchlist_signals["bottom"]
+    combined_buy = buy_winners + watchlist_signals["buy"]
+    logging.info("A 股抄底信号数量: %s；买入信号数量: %s", len(combined_bottom), len(combined_buy))
+    return {"bottom": combined_bottom, "buy": combined_buy}, latest_trade_date
 
 
-def scan_hk_market() -> tuple[List[Dict[str, object]], Optional[str]]:
+def scan_hk_market() -> tuple[Dict[str, List[Dict[str, object]]], Optional[str]]:
     """执行港股扫描，并返回最近交易日。财报时间优先返回 None。"""
     try:
         spot_df = fetch_hk_spot_df()
@@ -1180,9 +1386,11 @@ def scan_hk_market() -> tuple[List[Dict[str, object]], Optional[str]]:
             spot_df = fetch_hk_spot_df_fallback()
         except Exception:
             logging.exception("港股备用股票池也失败，本次港股扫描返回空结果。")
-            return [], None
+            return {"bottom": [], "buy": []}, None
 
-    winners: List[Dict[str, object]] = []
+    spot_df = limit_asia_universe(spot_df, HK_SCAN_LIMIT, "港股")
+    bottom_winners: List[Dict[str, object]] = []
+    buy_winners: List[Dict[str, object]] = []
     latest_trade_date: Optional[str] = None
     histories = extract_yfinance_histories(
         {str(code): format_hk_yfinance_ticker(str(code)) for code in spot_df["code"].tolist()}
@@ -1199,101 +1407,126 @@ def scan_hk_market() -> tuple[List[Dict[str, object]], Optional[str]]:
             trade_date = extract_latest_trade_date(hist_df)
             if trade_date and (latest_trade_date is None or trade_date > latest_trade_date):
                 latest_trade_date = trade_date
-            if calculate_cci_bottom_signal(hist_df):
-                winners.append(
-                    {
-                        "code": code,
-                        "name": row["name"],
-                        "market_cap": row["market_cap"],
-                        "earnings_time": None,
-                    }
-                )
+            signals = analyze_market_signals(hist_df)
+            payload = {
+                "code": code,
+                "name": row["name"],
+                "market_cap": row["market_cap"],
+                "earnings_time": None,
+                "category": "股票",
+            }
+            if signals["bottom"]:
+                bottom_winners.append(payload.copy())
+            if signals["buy"]:
+                buy_winners.append(payload.copy())
         except Exception:
             logging.exception("处理港股 %s 失败，跳过。", code)
         finally:
             if used_fallback_fetch:
                 time.sleep(ASIA_HISTORY_SLEEP_SECONDS)
 
-    winners.sort(key=lambda item: float(item["market_cap"]), reverse=True)
-    logging.info("港股最终命中数量: %s", len(winners))
-    return winners, latest_trade_date
+    bottom_winners.sort(key=lambda item: float(item["market_cap"]), reverse=True)
+    buy_winners.sort(key=lambda item: float(item["market_cap"]), reverse=True)
+    logging.info("港股抄底信号数量: %s；买入信号数量: %s", len(bottom_winners), len(buy_winners))
+    return {"bottom": bottom_winners, "buy": buy_winners}, latest_trade_date
 
 
-def build_market_message(market_name: str, results: Sequence[Dict[str, object]]) -> str:
+def format_signal_result_line(index: int, item: Dict[str, object]) -> str:
+    """Format one signal result line for Telegram MarkdownV2."""
+    code = markdown_v2_escape(str(item["code"]))
+    name = markdown_v2_escape(str(item["name"]))
+    category = markdown_v2_escape(str(item.get("category", "股票")))
+    earnings_time = item.get("earnings_time")
+    if earnings_time:
+        earnings_text = markdown_v2_escape(str(earnings_time))
+        return f"{index}\\. \\[{category}\\] {code} \\({name}\\) \\- 财报发布时间：{earnings_text}"
+    return f"{index}\\. \\[{category}\\] {code} \\({name}\\)"
+
+
+def build_market_message(
+    market_name: str,
+    bottom_results: Sequence[Dict[str, object]],
+    buy_results: Sequence[Dict[str, object]],
+) -> str:
     """组装 Telegram MarkdownV2 消息。"""
     date_text = markdown_v2_escape(datetime.now(TIMEZONE).strftime("%Y-%m-%d"))
-    title = f"*{date_text} {markdown_v2_escape(market_name)} 抄底信号*"
-
-    if not results:
-        return f"{title}\n今日 {markdown_v2_escape(market_name)} 无符合抄底条件的股票"
+    market_text = markdown_v2_escape(market_name)
+    title = f"*{date_text} {market_text} 信号汇总*"
 
     lines = [
         title,
-        f"筛选数量：*{len(results)}*",
         "",
+        f"*抄底信号：{len(bottom_results)}*",
     ]
 
-    for index, item in enumerate(results, start=1):
-        code = markdown_v2_escape(str(item["code"]))
-        name = markdown_v2_escape(str(item["name"]))
-        earnings_time = item.get("earnings_time")
-        if earnings_time:
-            earnings_text = markdown_v2_escape(str(earnings_time))
-            lines.append(f"{index}\\. {code} \\({name}\\) \\- 财报发布时间：{earnings_text}")
-        else:
-            lines.append(f"{index}\\. {code} \\({name}\\)")
+    if not bottom_results:
+        lines.append(f"今日 {market_text} 无符合抄底条件的股票/基金/指数")
+    else:
+        for index, item in enumerate(bottom_results, start=1):
+            lines.append(format_signal_result_line(index, item))
+
+    lines.extend([
+        "",
+        f"*买入信号：{len(buy_results)}*",
+    ])
+
+    if not buy_results:
+        lines.append(f"今日 {market_text} 无符合买入条件的股票/基金/指数")
+    else:
+        for index, item in enumerate(buy_results, start=1):
+            lines.append(format_signal_result_line(index, item))
 
     return "\n".join(lines)
 
 
-def run_us_job(force_push: bool = False) -> List[Dict[str, object]]:
+def run_us_job(force_push: bool = False) -> Dict[str, List[Dict[str, object]]]:
     """美股任务：北京时间周二到周六 08:00。"""
     logging.info("开始执行美股免费数据扫描任务。")
-    results, signal_date = scan_us_market()
+    signal_results, signal_date = scan_us_market()
     if not force_push and should_skip_push("us", signal_date):
         logging.info("美股最近交易日 %s 已推送过，本次跳过。", signal_date)
-        return results
+        return signal_results
     send_telegram_message(
-        build_market_message("美股", results),
+        build_market_message("美股", signal_results["bottom"], signal_results["buy"]),
         bot_token=US_TELEGRAM_BOT_TOKEN,
         chat_id=US_TELEGRAM_CHAT_ID,
     )
     mark_push_sent("us", signal_date)
-    return results
+    return signal_results
 
 
-def run_cn_job(force_push: bool = False) -> List[Dict[str, object]]:
+def run_cn_job(force_push: bool = False) -> Dict[str, List[Dict[str, object]]]:
     """A 股任务：北京时间周一到周五 20:00。"""
     logging.info("开始执行 A股 免费数据扫描任务。")
-    results, signal_date = scan_cn_market()
+    signal_results, signal_date = scan_cn_market()
     if not force_push and should_skip_push("cn", signal_date):
         logging.info("A股最近交易日 %s 已推送过，本次跳过。", signal_date)
-        return results
+        return signal_results
     send_telegram_message(
-        build_market_message("A股", results),
+        build_market_message("A股", signal_results["bottom"], signal_results["buy"]),
         bot_token=CN_TELEGRAM_BOT_TOKEN,
         chat_id=CN_TELEGRAM_CHAT_ID,
     )
     mark_push_sent("cn", signal_date)
     flush_market_cap_cache()
-    return results
+    return signal_results
 
 
-def run_hk_job(force_push: bool = False) -> List[Dict[str, object]]:
+def run_hk_job(force_push: bool = False) -> Dict[str, List[Dict[str, object]]]:
     """港股任务：北京时间周一到周五 20:00。"""
     logging.info("开始执行 港股 免费数据扫描任务。")
-    results, signal_date = scan_hk_market()
+    signal_results, signal_date = scan_hk_market()
     if not force_push and should_skip_push("hk", signal_date):
         logging.info("港股最近交易日 %s 已推送过，本次跳过。", signal_date)
-        return results
+        return signal_results
     send_telegram_message(
-        build_market_message("港股", results),
+        build_market_message("港股", signal_results["bottom"], signal_results["buy"]),
         bot_token=HK_TELEGRAM_BOT_TOKEN,
         chat_id=HK_TELEGRAM_CHAT_ID,
     )
     mark_push_sent("hk", signal_date)
     flush_market_cap_cache()
-    return results
+    return signal_results
 
 
 def run_manual_once(target: str) -> None:
@@ -1314,32 +1547,61 @@ def run_manual_once(target: str) -> None:
     raise ValueError(f"不支持的运行目标: {target}")
 
 
+def run_missed_jobs_on_startup() -> None:
+    """补跑启动前已经过了计划时间、但当天尚未推送的任务。"""
+    catch_up_jobs = [
+        ("美股", US_MARKET_TIMEZONE, 16, 5, run_us_job),
+        ("A股", TIMEZONE, 15, 5, run_cn_job),
+        ("港股", TIMEZONE, 16, 5, run_hk_job),
+    ]
+
+    for market_label, timezone, hour, minute, job in catch_up_jobs:
+        now = datetime.now(timezone)
+        if now.weekday() >= 5:
+            continue
+
+        scheduled_at = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if now < scheduled_at:
+            continue
+
+        logging.info(
+            "启动补跑检查命中：%s 当前时间 %s 已晚于计划时间 %s，开始补跑。",
+            market_label,
+            now.strftime("%Y-%m-%d %H:%M:%S"),
+            scheduled_at.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+        try:
+            job(force_push=False)
+        except Exception:
+            logging.exception("启动补跑 %s 失败。", market_label)
+
+
 def build_scheduler() -> BlockingScheduler:
     """创建北京时间调度器。"""
     scheduler = BlockingScheduler(timezone=TIMEZONE)
     scheduler.add_job(
         run_us_job,
-        trigger=CronTrigger(hour=8, minute=0, day_of_week="tue-sat", timezone=TIMEZONE),
+        trigger=CronTrigger(hour=16, minute=5, day_of_week="mon-fri", timezone=US_MARKET_TIMEZONE),
         id="us_job",
         replace_existing=True,
         coalesce=True,
-        misfire_grace_time=1800,
+        misfire_grace_time=43200,
     )
     scheduler.add_job(
         run_cn_job,
-        trigger=CronTrigger(hour=20, minute=0, day_of_week="mon-fri", timezone=TIMEZONE),
+        trigger=CronTrigger(hour=15, minute=5, day_of_week="mon-fri", timezone=TIMEZONE),
         id="cn_job",
         replace_existing=True,
         coalesce=True,
-        misfire_grace_time=1800,
+        misfire_grace_time=43200,
     )
     scheduler.add_job(
         run_hk_job,
-        trigger=CronTrigger(hour=20, minute=0, day_of_week="mon-fri", timezone=TIMEZONE),
+        trigger=CronTrigger(hour=16, minute=5, day_of_week="mon-fri", timezone=TIMEZONE),
         id="hk_job",
         replace_existing=True,
         coalesce=True,
-        misfire_grace_time=1800,
+        misfire_grace_time=43200,
     )
     return scheduler
 
@@ -1366,8 +1628,9 @@ def main() -> None:
         run_manual_once(args.run_once)
         return
 
+    run_missed_jobs_on_startup()
     scheduler = build_scheduler()
-    logging.info("调度器已启动：美股 周二到周六 08:00；A股 周一到周五 20:00；港股 周一到周五 20:00。")
+    logging.info("调度器已启动：美股 纽约时间周一到周五 16:05；A股 周一到周五 15:05；港股 周一到周五 16:05。")
     scheduler.start()
 
 
